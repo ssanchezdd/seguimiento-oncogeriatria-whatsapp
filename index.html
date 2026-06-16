@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0f766e" />
+  <meta name="description" content="Plataforma de seguimiento de pacientes vía WhatsApp para clínica de Oncogeriatría. Prototipo offline-first." />
+  <title>Seguimiento Oncogeriatría · WhatsApp</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- Top bar -->
+    <header class="topbar">
+      <button id="menuToggle" class="icon-btn" aria-label="Menú">☰</button>
+      <div class="brand">
+        <span class="brand-logo">🩺</span>
+        <div class="brand-text">
+          <strong>Clínica Oncogeriatría</strong>
+          <small>Seguimiento por WhatsApp</small>
+        </div>
+      </div>
+      <div class="topbar-right">
+        <div id="netStatus" class="net-pill net-online" title="Estado de conexión">
+          <span class="net-dot"></span><span class="net-label">En línea</span>
+        </div>
+        <button id="netToggle" class="ghost-btn" title="Simular corte de red">Simular offline</button>
+        <div id="outboxBadge" class="outbox-badge" title="Operaciones en cola">0</div>
+      </div>
+    </header>
+
+    <div class="layout">
+      <!-- Sidebar -->
+      <nav id="sidebar" class="sidebar">
+        <a class="nav-link" data-route="dashboard" href="#dashboard"><span class="nav-ico">📊</span> Tablero</a>
+        <a class="nav-link" data-route="seguimiento" href="#seguimiento"><span class="nav-ico">💬</span> Seguimiento</a>
+        <a class="nav-link" data-route="agenda" href="#agenda"><span class="nav-ico">🗓️</span> Agenda</a>
+        <a class="nav-link" data-route="pacientes" href="#pacientes"><span class="nav-ico">👥</span> Pacientes</a>
+        <a class="nav-link" data-route="cola" href="#cola"><span class="nav-ico">🔄</span> Sincronización</a>
+        <a class="nav-link" data-route="metricas" href="#metricas"><span class="nav-ico">📈</span> Métricas</a>
+        <a class="nav-link" data-route="acerca" href="#acerca"><span class="nav-ico">ℹ️</span> Acerca / Plan</a>
+        <div class="sidebar-foot">
+          <small>Prototipo demostrativo<br/>Datos sintéticos · 100% local</small>
+        </div>
+      </nav>
+      <div id="backdrop" class="backdrop"></div>
+
+      <!-- Main content -->
+      <main id="view" class="view">
+        <div class="loading">Cargando…</div>
+      </main>
+    </div>
+
+    <!-- Toast container -->
+    <div id="toasts" class="toasts"></div>
+    <!-- Modal container -->
+    <div id="modalRoot"></div>
+  </div>
+
+  <script src="js/db.js"></script>
+  <script src="js/seed.js"></script>
+  <script src="js/csv.js"></script>
+  <script src="js/sync.js"></script>
+  <script src="js/agenda.js"></script>
+  <script src="js/followup.js"></script>
+  <script src="js/patients.js"></script>
+  <script src="js/dashboard.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
