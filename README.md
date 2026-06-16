@@ -38,6 +38,28 @@ HTML + CSS + JavaScript vanilla, sin dependencias ni paso de compilación.
 IndexedDB para persistencia local y un Service Worker para que la app funcione sin
 conexión (instalable como PWA).
 
+## Despliegue (CI/CD)
+
+El sitio se publica automáticamente en GitHub Pages mediante GitHub Actions en
+cada push a `main` ([.github/workflows/deploy.yml](.github/workflows/deploy.yml)).
+El workflow valida que existan los assets referenciados y que todo el JavaScript
+parsee antes de desplegar.
+
+## Backend (contrato)
+
+La carpeta [`backend/`](backend/) contiene el **contrato del servidor** derivado
+del protocolo de sincronización del cliente: una especificación
+[OpenAPI 3.1](backend/openapi.yaml), un **servidor de referencia ejecutable sin
+dependencias** ([server.example.js](backend/server.example.js)) y su prueba de
+humo. Implementa idempotencia por `client_id`, lock optimista para reservas,
+validación de notificaciones y la cola de conflictos. Ver
+[backend/README.md](backend/README.md).
+
+```bash
+cd backend && npm start      # http://localhost:3000/v1
+npm run smoke                # prueba el contrato de sincronización
+```
+
 ## Estructura
 
 ```
@@ -54,6 +76,9 @@ js/followup.js          Flujo de seguimiento WhatsApp (§5)
 js/patients.js          Pacientes y consentimiento (§4)
 js/dashboard.js         Tablero, sincronización, métricas, acerca
 js/app.js               Router + helpers de UI
+backend/openapi.yaml    Contrato OpenAPI 3.1 del servidor
+backend/server.example.js  Servidor de referencia ejecutable (sin dependencias)
+.github/workflows/      CI: despliegue automático a GitHub Pages
 ```
 
 ## Desarrollo local

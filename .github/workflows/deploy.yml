@@ -1,0 +1,61 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Allow one concurrent deployment; cancel in-progress runs for newer pushes.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Sanity-check static assets
+        run: |
+          # Fail the build early if a referenced JS file is missing.
+          node -e "
+            const fs = require('fs');
+            const html = fs.readFileSync('index.html', 'utf8');
+            const refs = [...html.matchAll(/(?:src|href)=\"([^\"]+)\"/g)]
+              .map(m => m[1]).filter(p => !p.startsWith('http') && !p.startsWith('#'));
+            let bad = refs.filter(f => !fs.existsSync(f));
+            if (bad.length) { console.error('Missing assets:', bad); process.exit(1); }
+            console.log('OK -', refs.length, 'referenced assets exist');
+          "
+
+      - name: Syntax-check JavaScript
+        run: |
+          for f in js/*.js sw.js; do node --check "$f"; done
+          echo "All JS files parse."
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          # Publish the whole site (the backend/ folder is docs only, harmless to host).
+          path: '.'
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

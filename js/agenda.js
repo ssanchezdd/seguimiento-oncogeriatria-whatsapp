@@ -323,6 +323,43 @@
     UI.toast('CSV descargado', 'green');
   }
 
+  /* Example CSV templates the admin staff can fill in and re-import (§7.4). */
+  const SAMPLES = {
+    profesionales: {
+      file: 'ejemplo_profesionales.csv',
+      headers: ['id', 'nombre', 'especialidad', 'sede', 'activo'],
+      rows: [
+        { id: 'P010', nombre: 'Dra. Ejemplo Uno', especialidad: 'Oncología', sede: 'Sede Norte', activo: 'si' },
+        { id: 'P011', nombre: 'Dr. Ejemplo Dos', especialidad: 'Geriatría', sede: 'Sede Centro', activo: 'si' },
+        { id: 'P012', nombre: 'Enf. Ejemplo Tres', especialidad: 'Enfermería', sede: 'Sede Norte', activo: 'no' }
+      ]
+    },
+    plantillas: {
+      file: 'ejemplo_plantillas_disponibilidad.csv',
+      headers: ['profesional_id', 'dia_semana', 'hora_inicio', 'hora_fin', 'duracion_min', 'sede'],
+      rows: [
+        { profesional_id: 'P010', dia_semana: 'lunes', hora_inicio: '08:00', hora_fin: '12:00', duracion_min: '30', sede: 'Sede Norte' },
+        { profesional_id: 'P010', dia_semana: 'miercoles', hora_inicio: '14:00', hora_fin: '17:00', duracion_min: '30', sede: 'Sede Norte' },
+        { profesional_id: 'P011', dia_semana: 'martes', hora_inicio: '09:00', hora_fin: '13:00', duracion_min: '20', sede: 'Sede Centro' }
+      ]
+    },
+    excepciones: {
+      file: 'ejemplo_excepciones.csv',
+      headers: ['profesional_id', 'fecha', 'hora_inicio', 'hora_fin', 'tipo', 'nota'],
+      rows: [
+        { profesional_id: 'P010', fecha: '2026-07-15', hora_inicio: '08:00', hora_fin: '12:00', tipo: 'bloqueo', nota: 'Vacaciones' },
+        { profesional_id: 'P011', fecha: '2026-07-20', hora_inicio: '09:00', hora_fin: '10:00', tipo: 'cerrado', nota: 'Reunión de comité' }
+      ]
+    }
+  };
+
+  function downloadSample(kind) {
+    const s = SAMPLES[kind];
+    if (!s) return;
+    CSV.download(s.file, CSV.serialize(s.rows, s.headers));
+    UI.toast('Plantilla de ejemplo descargada', 'green');
+  }
+
   /* ---------------- CSV import (with preview, §7.4) ---------------- */
   function openImportModal(view) {
     UI.modal(`
@@ -340,6 +377,14 @@
         <div class="field"><label>Separador</label><select id="impSep"><option value="auto">Auto-detectar</option><option value=",">Coma (,)</option><option value=";">Punto y coma (;)</option></select></div>
       </div>
       <div class="banner banner-info">Importación <strong>no destructiva</strong>: una cita confirmada nunca se borra; los choques van a la lista de conflictos. Se muestra una vista previa antes de aplicar.</div>
+      <div class="field" style="margin-bottom:.4rem">
+        <label>¿No tiene un archivo? Descargue una plantilla de ejemplo lista para llenar:</label>
+        <div class="btn-row">
+          <button class="btn ghost sm" data-sample="profesionales">⬇ Ejemplo profesionales</button>
+          <button class="btn ghost sm" data-sample="plantillas">⬇ Ejemplo plantillas</button>
+          <button class="btn ghost sm" data-sample="excepciones">⬇ Ejemplo excepciones</button>
+        </div>
+      </div>
       <div id="impPreview"></div>
       <div class="modal-foot">
         <button class="btn ghost" id="impCancel">Cancelar</button>
@@ -350,6 +395,7 @@
         const preview = root.querySelector('#impPreview');
         const applyBtn = root.querySelector('#impApply');
         root.querySelector('#impCancel').onclick = UI.closeModal;
+        root.querySelectorAll('[data-sample]').forEach((b) => b.onclick = () => downloadSample(b.dataset.sample));
         root.querySelector('#impKind').onchange = (e) => { kind = e.target.value; if (parsed) doPreview(); };
 
         root.querySelector('#impFile').onchange = (e) => {

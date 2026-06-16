@@ -1,0 +1,14 @@
+{
+  "name": "seguimiento-oncogeriatria-backend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Servidor de referencia (contrato) para el cliente offline-first de seguimiento por WhatsApp",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node server.example.js",
+    "smoke": "node smoke.test.js"
+  }
+}

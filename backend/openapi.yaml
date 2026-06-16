@@ -1,0 +1,383 @@
+openapi: 3.1.0
+info:
+  title: API de Seguimiento Oncogeriatría (contrato)
+  version: 0.1.0
+  description: >
+    Contrato del backend que respalda el cliente offline-first. El cliente
+    mantiene una cola de salida (outbox) de operaciones y las envía en orden al
+    reconectar. El servidor valida cada operación, resuelve conflictos con lock
+    optimista y nunca sobrescribe en silencio información clínica o de agenda.
+
+    Este contrato se deriva directamente del protocolo implementado en
+    `js/sync.js` (funciones `enqueue`, `processOutbox`, `validate`, `apply`).
+
+    Principios:
+      - Idempotencia por `client_id` (UUID generado offline). Reintentos no duplican (§6.3.1).
+      - Orden de creación preservado por `seq` / `created_local` (§6.3.2).
+      - Conflictos a revisión manual, sin sobrescritura silenciosa (§6.3.3).
+      - Notificaciones validadas (consentimiento + ventana Meta + vigencia) antes de enviar (§6.3.4).
+      - Doble sello de tiempo: `created_local` (cliente) y `confirmed_server` (servidor) (§6.3.5).
+
+servers:
+  - url: https://api.ejemplo-clinica.co/v1
+    description: Producción (ejemplo)
+  - url: http://localhost:3000/v1
+    description: Servidor de ejemplo local (backend/server.example.js)
+
+tags:
+  - name: sync
+    description: Drenaje de la cola de salida del cliente
+  - name: agenda
+    description: Lectura de disponibilidad y cupos
+  - name: pacientes
+  - name: conflictos
+
+paths:
+  /sync:
+    post:
+      tags: [sync]
+      operationId: syncBatch
+      summary: Procesa un lote de operaciones del outbox en orden
+      description: >
+        Recibe las operaciones pendientes del cliente (en orden de creación) y
+        devuelve un resultado por cada una: `confirmed`, `conflict` o `rejected`.
+        Idempotente por `client_id`: una operación ya confirmada devuelve su
+        resultado previo sin re-aplicarla.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [operations]
+              properties:
+                operations:
+                  type: array
+                  items: { $ref: '#/components/schemas/Operation' }
+      responses:
+        '200':
+          description: Resultado por operación (el lote nunca falla en bloque)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [results]
+                properties:
+                  results:
+                    type: array
+                    items: { $ref: '#/components/schemas/SyncResult' }
+                  server_time: { type: string, format: date-time }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /availability:
+    get:
+      tags: [agenda]
+      operationId: getAvailability
+      summary: Disponibilidad calculada contra la agenda real (§7.2)
+      parameters:
+        - { name: fecha, in: query, required: true, schema: { type: string, format: date }, description: 'YYYY-MM-DD' }
+        - { name: especialidad, in: query, schema: { type: string } }
+        - { name: sede, in: query, schema: { type: string } }
+        - { name: profesional_id, in: query, schema: { type: string } }
+      responses:
+        '200':
+          description: Cupos por profesional, con conteos de abiertos/reservados/cerrados
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AvailabilityResponse' }
+
+  /slots:
+    get:
+      tags: [agenda]
+      operationId: listSlots
+      summary: Lista cupos en un rango de fechas
+      parameters:
+        - { name: desde, in: query, schema: { type: string, format: date } }
+        - { name: hasta, in: query, schema: { type: string, format: date } }
+      responses:
+        '200':
+          description: Lista de cupos
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Slot' }
+
+  /patients:
+    get:
+      tags: [pacientes]
+      operationId: listPatients
+      summary: Lista pacientes
+      responses:
+        '200':
+          description: Lista de pacientes
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Patient' }
+
+  /practitioners:
+    get:
+      tags: [agenda]
+      operationId: listPractitioners
+      summary: Lista profesionales
+      responses:
+        '200':
+          description: Lista de profesionales
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Practitioner' }
+
+  /conflicts:
+    get:
+      tags: [conflictos]
+      operationId: listConflicts
+      summary: Cola de conflictos pendientes de revisión manual
+      responses:
+        '200':
+          description: Conflictos abiertos
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Conflict' }
+
+  /conflicts/{id}/resolve:
+    post:
+      tags: [conflictos]
+      operationId: resolveConflict
+      summary: Resuelve un conflicto (decisión humana)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision]
+              properties:
+                decision: { type: string, enum: [descartar, reintentar, forzar] }
+                nota: { type: string }
+      responses:
+        '200':
+          description: Conflicto resuelto
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Conflict' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  responses:
+    Unauthorized:
+      description: Token ausente o inválido
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+
+  schemas:
+    Operation:
+      type: object
+      required: [client_id, op_type, payload, created_local]
+      properties:
+        client_id:
+          type: string
+          format: uuid
+          description: UUID generado offline. Clave de idempotencia (§6.3.1).
+        seq:
+          type: integer
+          description: Marca monotónica de creación para ordenar el lote (§6.3.2).
+        op_type:
+          type: string
+          enum: [assessment.create, patient.create, patient.update, slot.reserve, notification.enqueue, note.create]
+        payload:
+          type: object
+          description: Carga específica del tipo de operación (ver OperationPayload).
+          oneOf:
+            - $ref: '#/components/schemas/AssessmentCreatePayload'
+            - $ref: '#/components/schemas/PatientPayload'
+            - $ref: '#/components/schemas/SlotReservePayload'
+            - $ref: '#/components/schemas/NotificationEnqueuePayload'
+        created_local:
+          type: string
+          format: date-time
+          description: Hora local de creación en el cliente (§6.3.5).
+
+    SyncResult:
+      type: object
+      required: [client_id, status]
+      properties:
+        client_id: { type: string, format: uuid }
+        status:
+          type: string
+          enum: [confirmed, conflict, rejected]
+          description: >
+            confirmed = aplicada (o ya estaba aplicada, idempotente);
+            conflict  = requiere revisión manual (p. ej. cupo tomado);
+            rejected  = inválida por regla de negocio (p. ej. sin consentimiento).
+        server_id:
+          type: string
+          description: Identificador autoritativo del servidor para el recurso creado.
+        confirmed_server:
+          type: string
+          format: date-time
+          description: Sello de tiempo del servidor (§6.3.5).
+        reason:
+          type: string
+          description: Motivo cuando status es conflict o rejected.
+
+    AssessmentCreatePayload:
+      type: object
+      required: [assessment]
+      properties:
+        assessment: { $ref: '#/components/schemas/Assessment' }
+
+    PatientPayload:
+      type: object
+      required: [patient]
+      properties:
+        patient: { $ref: '#/components/schemas/Patient' }
+
+    SlotReservePayload:
+      type: object
+      required: [slot_id, paciente_id, expected_version]
+      properties:
+        slot_id: { type: string }
+        paciente_id: { type: string }
+        paciente_nombre: { type: string }
+        expected_version:
+          type: integer
+          description: >
+            Versión del cupo que el cliente vio. Si no coincide con la del
+            servidor, se devuelve conflict (lock optimista, §6.3.3).
+
+    NotificationEnqueuePayload:
+      type: object
+      required: [notification]
+      properties:
+        notification: { $ref: '#/components/schemas/Notification' }
+
+    Assessment:
+      type: object
+      required: [client_id, paciente_id, fecha, clasificacion]
+      properties:
+        client_id: { type: string, format: uuid }
+        paciente_id: { type: string }
+        paciente_nombre: { type: string }
+        fecha: { type: string, format: date }
+        estado_general: { type: string, enum: [bien, regular, mal] }
+        sintomas_alarma: { type: boolean }
+        sintomas_lista: { type: array, items: { type: string } }
+        adherencia: { type: string, enum: [si, a_veces, no] }
+        nota: { type: string }
+        clasificacion:
+          type: string
+          enum: [verde, amarillo, rojo]
+          description: >
+            El servidor recalcula y escala las banderas rojas de inmediato (§5.3).
+        estado: { type: string, enum: [pendiente, confirmado], readOnly: true }
+        confirmed_server: { type: string, format: date-time, readOnly: true }
+
+    Patient:
+      type: object
+      required: [client_id, nombre]
+      properties:
+        client_id: { type: string, format: uuid }
+        id: { type: string }
+        nombre: { type: string }
+        telefono_paciente: { type: string }
+        cuidador: { type: string, description: 'Contacto del cuidador (§5.1)' }
+        consentimiento: { type: boolean, description: 'Autorización vigente (Ley 1581)' }
+        consent_fecha: { type: string, format: date }
+        consent_ts: { type: string, format: date-time }
+        opt_out: { type: boolean, description: 'Revocación / no recibir mensajes' }
+        ultimo_seguimiento: { type: string, format: date }
+        estado: { type: string, enum: [pendiente, confirmado], readOnly: true }
+
+    Practitioner:
+      type: object
+      required: [id, nombre]
+      properties:
+        id: { type: string }
+        nombre: { type: string }
+        especialidades: { type: array, items: { type: string } }
+        sede: { type: string }
+        activo: { type: boolean }
+
+    Slot:
+      type: object
+      required: [id, profesional_id, fecha, hora, estado]
+      properties:
+        id: { type: string, description: 'profesional_id|fecha|hora' }
+        profesional_id: { type: string }
+        profesional_nombre: { type: string }
+        especialidad: { type: string }
+        sede: { type: string }
+        fecha: { type: string, format: date }
+        hora: { type: string, example: '08:30' }
+        duracion_min: { type: integer }
+        estado: { type: string, enum: [abierto, reservado, cerrado, bloqueado] }
+        paciente_id: { type: string, nullable: true }
+        paciente_nombre: { type: string, nullable: true }
+        version: { type: integer, description: 'Contador para lock optimista' }
+
+    Notification:
+      type: object
+      required: [client_id, paciente_client_id, tipo]
+      properties:
+        client_id: { type: string, format: uuid }
+        paciente_id: { type: string }
+        paciente_client_id: { type: string, format: uuid }
+        tipo: { type: string, enum: [recordatorio_cita, seguimiento, plantilla_recontacto] }
+        slot_id: { type: string, nullable: true }
+        plantilla: { type: string, description: 'Plantilla Meta pre-aprobada (categoría Utility)' }
+        estado:
+          type: string
+          enum: [pendiente_envio, enviado, rechazado]
+          readOnly: true
+
+    AvailabilityResponse:
+      type: object
+      properties:
+        fecha: { type: string, format: date }
+        abiertos: { type: integer }
+        reservados: { type: integer }
+        cerrados: { type: integer }
+        columns:
+          type: array
+          items:
+            type: object
+            properties:
+              practitioner: { $ref: '#/components/schemas/Practitioner' }
+              slots:
+                type: array
+                items: { $ref: '#/components/schemas/Slot' }
+
+    Conflict:
+      type: object
+      properties:
+        id: { type: string }
+        op_client_id: { type: string, format: uuid }
+        op_type: { type: string }
+        label: { type: string }
+        reason: { type: string }
+        ts: { type: string, format: date-time }
+        resuelto: { type: boolean }
+        decision: { type: string }
+
+    Error:
+      type: object
+      properties:
+        error: { type: string }
+        detail: { type: string }
+
+security:
+  - bearerAuth: []
